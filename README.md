@@ -80,12 +80,67 @@ Ensuite le cron prend le relais tout seul.
 
 ---
 
+## Moteur de déclenchement : cron-job.org (et pourquoi pas le cron GitHub)
+
+Le cron natif de GitHub Actions **n'est pas fiable** pour de l'alerting. Mesuré sur ce repo
+entre le 23 et le 31 août 2026, avec un `cron: "*/15"` (96 runs/jour attendus) :
+
+| Jour | Runs réels |
+|---|---|
+| 24/08 | 27 |
+| 25/08 | 29 |
+| 26/08 | 19 |
+| 27/08 | 2 |
+| 28/08 | 3 |
+| 29/08 | 6 |
+| 30/08 | 6 |
+
+Écarts entre deux runs sur les dernières 24 h : de 131 à 371 minutes. Aucun run en échec —
+ils ne sont simplement jamais déclenchés. GitHub déprioritise les workflows planifiés des
+repos publics gratuits, et la dégradation s'aggrave avec le temps.
+
+**Solution : un déclencheur externe.** cron-job.org envoie un `repository_dispatch` toutes
+les 2 minutes ; ce type d'événement n'est pas soumis à l'étranglement.
+
+### Configuration de cron-job.org
+
+1. Crée un **fine-grained PAT** sur github.com → Settings → Developer settings →
+   Personal access tokens → Fine-grained tokens :
+   - *Repository access* : uniquement `carty-radar`
+   - *Permissions* → Repository permissions → **Contents: Read and write**
+   - Expiration : 1 an (note la date, le radar s'arrêtera à l'expiration)
+2. Sur [cron-job.org](https://cron-job.org), crée un job :
+   - URL : `https://api.github.com/repos/michaelherry123-byte/carty-radar/dispatches`
+   - Méthode : **POST**
+   - Intervalle : toutes les 2 minutes
+   - Headers :
+     - `Authorization: Bearer <ton PAT>`
+     - `Accept: application/vnd.github+json`
+     - `Content-Type: application/json`
+   - Body : `{"event_type":"carty-tick"}`
+3. **Active la notification e-mail en cas d'échec** (case à cocher dans le job). cron-job.org
+   désactive automatiquement un job qui échoue 25 fois d'affilée : c'est précisément ce qui
+   arrivera le jour où le PAT expirera, et sans cette notification le radar s'éteint en silence.
+4. Le job doit renvoyer **204 No Content**. Diagnostic des erreurs :
+   - `401` → PAT invalide ou expiré
+   - `404` → PAT valide mais sans la permission *Contents: Read and write* sur le repo
+     (GitHub renvoie 404 et non 403 pour ne pas divulguer l'existence du dépôt)
+   - `403 Request forbidden by administrative rules` → problème de `User-Agent`.
+     cron-job.org **ignore** les headers `User-Agent` et `Connection` que tu configures ;
+     il envoie le sien, ce qui suffit normalement à l'API GitHub.
+
+cron-job.org est gratuit sans palier payant, financé par dons, open source, minimum 1 minute
+d'intervalle, nombre de jobs illimité. Nos 720 appels/jour restent dans leur usage normal.
+
+Le cron GitHub `*/15` reste actif en filet de sécurité si cron-job.org tombe.
+
 ## Latence
 
-Le cron est réglé sur 5 minutes, mais GitHub retarde régulièrement les jobs planifiés de
-5 à 10 minutes sur les plans gratuits, surtout aux heures rondes. **Compte 5 à 15 minutes**
-entre la publication d'un pick et l'alerte. Si tu as besoin de quasi-temps-réel, la même
-`carty_watch.py` tourne à l'identique sur ton PC via une tâche planifiée toutes les 60 s.
+Avec cron-job.org toutes les 2 minutes : **latence réelle 2 à 3 minutes** entre la
+publication d'un pick et l'alerte Telegram (le job lui-même prend ~25 s).
+
+Si cron-job.org tombe et qu'on retombe sur le seul cron GitHub : compte 2 à 6 heures.
+C'est le mode dégradé, pas le mode nominal.
 
 ## Coût / quotas
 

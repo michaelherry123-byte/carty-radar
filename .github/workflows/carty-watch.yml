@@ -1,10 +1,20 @@
 name: Carty Radar
 
 on:
+  # ── Moteur principal ────────────────────────────────────────────────────
+  # cron-job.org envoie un repository_dispatch toutes les 2 minutes.
+  # Contrairement à `schedule`, ce déclencheur n'est PAS étranglé par GitHub :
+  # il part d'un POST externe et s'exécute immédiatement.
+  repository_dispatch:
+    types: [carty-tick]
+
+  # ── Filet de sécurité ───────────────────────────────────────────────────
+  # Le cron GitHub natif. Mesuré du 23 au 31/08/2026 : 2 à 29 runs/jour au lieu
+  # de 96, avec des trous de 2 à 6 h. On le garde uniquement pour le cas où
+  # cron-job.org tomberait, pas comme moteur principal.
   schedule:
-    # Toutes les 5 minutes. GitHub applique souvent un retard de 3 à 10 min
-    # sur les crons du plan gratuit : latence réelle attendue 5-15 min.
     - cron: "*/15 * * * *"
+
   workflow_dispatch:
     inputs:
       mode:
